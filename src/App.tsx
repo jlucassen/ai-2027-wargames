@@ -1,7 +1,7 @@
-import { useState } from "react";
-import reactLogo from "./assets/react.svg";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
 import { invoke } from "@tauri-apps/api/core";
-import "./App.css";
+import { ChangeEvent, useState } from "react";
 
 function App() {
   const [greetMsg, setGreetMsg] = useState("");
@@ -13,38 +13,57 @@ function App() {
   }
 
   return (
-    <main className="container">
-      <h1>Welcome to Tauri + React</h1>
+    <div className="flex min-h-screen flex-col items-center justify-center p-4">
+      <div className="w-full max-w-md space-y-6">
+        <div className="space-y-2 text-center">
+          <h1 className="text-3xl font-bold">Tauri + React + Shadcn/UI</h1>
+          <p className="text-gray-500 dark:text-gray-400">
+            Enter your name below to receive a greeting
+          </p>
+        </div>
 
-      <div className="row">
-        <a href="https://vitejs.dev" target="_blank">
-          <img src="/vite.svg" className="logo vite" alt="Vite logo" />
-        </a>
-        <a href="https://tauri.app" target="_blank">
-          <img src="/tauri.svg" className="logo tauri" alt="Tauri logo" />
-        </a>
-        <a href="https://reactjs.org" target="_blank">
-          <img src={reactLogo} className="logo react" alt="React logo" />
-        </a>
+        <form
+          className="space-y-4"
+          onSubmit={(e) => {
+            e.preventDefault();
+            greet();
+          }}
+        >
+          <div className="flex gap-2">
+            <Input
+              id="greet-input"
+              value={name}
+              onChange={(e: ChangeEvent<HTMLInputElement>) =>
+                setName(e.currentTarget.value)
+              }
+              placeholder="Enter your name..."
+              className="flex-1"
+            />
+            <Button type="submit">Greet</Button>
+          </div>
+
+          {greetMsg && (
+            <div className="rounded-lg bg-muted p-4 text-center">
+              <p className="font-medium">{greetMsg}</p>
+            </div>
+          )}
+        </form>
+
+        <div className="pt-6">
+          <h2 className="mb-2 text-center text-xl font-semibold">
+            Shadcn/UI Button Variants
+          </h2>
+          <div className="flex flex-wrap gap-2 justify-center">
+            <Button variant="default">Default</Button>
+            <Button variant="destructive">Destructive</Button>
+            <Button variant="outline">Outline</Button>
+            <Button variant="secondary">Secondary</Button>
+            <Button variant="ghost">Ghost</Button>
+            <Button variant="link">Link</Button>
+          </div>
+        </div>
       </div>
-      <p>Click on the Tauri, Vite, and React logos to learn more.</p>
-
-      <form
-        className="row"
-        onSubmit={(e) => {
-          e.preventDefault();
-          greet();
-        }}
-      >
-        <input
-          id="greet-input"
-          onChange={(e) => setName(e.currentTarget.value)}
-          placeholder="Enter a name..."
-        />
-        <button type="submit">Greet</button>
-      </form>
-      <p>{greetMsg}</p>
-    </main>
+    </div>
   );
 }
 
