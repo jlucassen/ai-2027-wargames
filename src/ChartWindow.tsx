@@ -29,20 +29,14 @@ const CHART_COLORS = [
   "var(--chart-8)",
 ];
 
-type ChartDataItem = {
-  date: string;
-  formattedDate: string;
-  [key: string]: string | number;
-};
-
 const applyLogTransform = (value: number): number => {
   if (value <= 1) return value;
-  return Math.log10(value) + 1;
+  return Math.log(value) + 1;
 };
 
 const reverseLogTransform = (value: number): number => {
   if (value <= 1) return value;
-  return Math.pow(10, value - 1);
+  return Math.exp(value - 1);
 };
 
 const CUSTOM_Y_TICKS = [2, 3, 10, 100, 2000];
@@ -90,7 +84,7 @@ function ChartWindow() {
     };
   }, []);
 
-  const chartData = useMemo<ChartDataItem[]>(() => {
+  const chartData = useMemo(() => {
     if (!data) return [];
 
     try {
@@ -111,9 +105,10 @@ function ChartWindow() {
           }
         });
 
+        const dateObj = parseISO(row.date);
         return {
           date: row.date,
-          formattedDate: format(parseISO(row.date), "MMM yyyy"),
+          timestamp: dateObj.getTime(),
           ...transformedValues,
         };
       });
@@ -161,6 +156,19 @@ function ChartWindow() {
     }
   }, [data?.headers]);
 
+  const xDomain = useMemo(() => {
+    if (!data || data.rows.length === 0) return [];
+    return [
+      parseISO(data.rows[0].date).getTime(),
+      parseISO(data.rows[data.rows.length - 1].date).getTime(),
+    ];
+  }, [data]);
+
+  const ticks = useMemo(() => {
+    if (!data || data.rows.length === 0) return [];
+    return data.rows.map((row) => parseISO(row.date).getTime());
+  }, [data]);
+
   if (!data) {
     return (
       <div className="flex items-center justify-center h-screen">
@@ -176,11 +184,16 @@ function ChartWindow() {
       return null;
     }
 
+    const formattedLabel =
+      typeof label === "number" ? format(new Date(label), "MMM yyyy") : label;
+
     return (
       <div className="rounded-lg border bg-background p-2 shadow-sm">
         <div className="flex gap-2">
           <div className="flex flex-col">
-            <span className="text-sm text-muted-foreground">{label}</span>
+            <span className="text-sm text-muted-foreground">
+              {formattedLabel}
+            </span>
           </div>
           <div className="flex flex-col">
             {payload.map((entry: any, index: number) => {
@@ -243,10 +256,17 @@ function ChartWindow() {
           >
             <CartesianGrid vertical={false} />
             <XAxis
-              dataKey="formattedDate"
+              dataKey="timestamp"
+              type="number"
+              domain={xDomain}
+              tickFormatter={(timestamp) => {
+                return format(new Date(timestamp), "MMM yyyy");
+              }}
+              ticks={ticks}
               tickLine={false}
               axisLine={false}
               tickMargin={8}
+              allowDataOverflow
             />
             <YAxis
               scale="log"
