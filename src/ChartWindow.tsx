@@ -65,9 +65,11 @@ function ChartWindow() {
 
     try {
       // Sort rows by date
-      const sortedRows = [...data.rows].sort(
-        (a, b) => new Date(a.date).getTime() - new Date(b.date).getTime()
-      );
+      const sortedRows = [...data.rows]
+        .filter((row) => !row.hidden)
+        .sort(
+          (a, b) => new Date(a.date).getTime() - new Date(b.date).getTime()
+        );
 
       // Transform the data for the chart
       return sortedRows.map((row) => ({
@@ -172,6 +174,7 @@ function ChartWindow() {
                 position: "insideLeft",
                 style: { textAnchor: "middle" },
               }}
+              scale="log"
               domain={["auto", "auto"]}
             />
             <ChartTooltip cursor={false} content={<ChartTooltipContent />} />

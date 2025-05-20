@@ -1,6 +1,12 @@
 import { emit } from "@tauri-apps/api/event";
+import { appCacheDir, join } from "@tauri-apps/api/path";
 import { message, open, save } from "@tauri-apps/plugin-dialog";
-import { readTextFile, writeTextFile } from "@tauri-apps/plugin-fs";
+import {
+  exists,
+  mkdir,
+  readTextFile,
+  writeTextFile,
+} from "@tauri-apps/plugin-fs";
 import { addMonths, format, subMonths } from "date-fns";
 import {
   Calendar as CalendarIcon,
@@ -14,7 +20,6 @@ import {
   Upload,
 } from "lucide-react";
 import { useEffect, useState } from "react";
-import { ZodError } from "zod/v4";
 import { Button } from "./components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "./components/ui/card";
 import { Input } from "./components/ui/input";
@@ -29,45 +34,143 @@ import {
 import { dataSchema, type Data } from "./dataSchema";
 
 function MainWindow() {
-  const [headers, setHeaders] = useState<string[]>(["OpenAI", "GDM/Anthropic"]);
-  const [rows, setRows] = useState<
-    { date: string; values: Record<string, number>; hidden: boolean }[]
-  >([
+  const [headers, setHeaders] = useState<string[]>([
+    "OpenAI",
+    "GDM/Anthropic",
+    "Meta/xAI",
+    "CCP",
+  ]);
+  const [rows, setRows] = useState<Data["rows"]>([
     {
       date: "2027-10-14",
-      values: { OpenAI: 1.2, "GDM/Anthropic": 1.5 },
+      values: { OpenAI: 2, "GDM/Anthropic": 1, "Meta/xAI": 1, CCP: 2 },
+      hidden: false,
+    },
+    {
+      date: "2028-01-14",
+      values: { OpenAI: 3, "GDM/Anthropic": 2, "Meta/xAI": 1, CCP: 2.4 },
+      hidden: false,
+    },
+    {
+      date: "2028-04-14",
+      values: { OpenAI: 10, "GDM/Anthropic": 3, "Meta/xAI": 2, CCP: 3 },
+      hidden: false,
+    },
+    {
+      date: "2028-07-14",
+      values: { OpenAI: 100, "GDM/Anthropic": 10, "Meta/xAI": 3, CCP: 5.5 },
+      hidden: false,
+    },
+    {
+      date: "2028-10-14",
+      values: { OpenAI: 2000, "GDM/Anthropic": 100, "Meta/xAI": 10, CCP: 10 },
       hidden: false,
     },
   ]);
+  const [cacheFilePath, setCacheFilePath] = useState<string | null>(null);
+
+  const getCacheFilePath = async (): Promise<string> => {
+    if (cacheFilePath) return cacheFilePath;
+
+    const appDataDirPath = await appCacheDir();
+    console.log("appDataDirPath", appDataDirPath);
+    await mkdir(appDataDirPath, { recursive: true });
+    return join(appDataDirPath, "ai-progress-data.cache.json");
+  };
+
+  const prepareData = () => {
+    return {
+      headers,
+      rows: rows.map((row) => {
+        return {
+          ...row,
+          values: Object.fromEntries(
+            Object.entries(row.values).map(([key, value]) => [
+              key,
+              isNaN(value) ? 0 : value,
+            ])
+          ),
+        };
+      }),
+    };
+  };
+
+  const parseData = async (fileContent: string) => {
+    let rawData;
+    try {
+      rawData = JSON.parse(fileContent);
+    } catch (parseError) {
+      await message("Invalid JSON file format", {
+        title: "Load Error",
+        kind: "error",
+      });
+      return null;
+    }
+    const validationResult = dataSchema.safeParse(rawData);
+
+    if (!validationResult.success) {
+      const errorMessage = validationResult.error.issues
+        .map((err) => `${err.path.join(".")}: ${err.message}`)
+        .join("\n");
+
+      await message(`Invalid data format:\n${errorMessage}`, {
+        title: "Validation Error",
+        kind: "error",
+      });
+      return null;
+    }
+
+    return validationResult.data;
+  };
+
+  const applyLoadedData = (loadedData: Data) => {
+    setHeaders(loadedData.headers);
+    setRows(
+      loadedData.rows.map((row) => ({
+        ...row,
+        hidden: row.hidden ?? false,
+      }))
+    );
+  };
+
+  const cacheData = async (data: Data) => {
+    try {
+      if (!cacheFilePath) {
+        const filePath = await getCacheFilePath();
+        setCacheFilePath(filePath);
+      }
+
+      if (cacheFilePath) {
+        await writeTextFile(cacheFilePath, JSON.stringify(data, null, 2), {});
+        console.log("Data cached successfully");
+      }
+    } catch (error) {
+      console.error("Failed to cache data:", error);
+    }
+  };
+
+  // Load cached data on startup
+  useEffect(() => {
+    const loadCachedData = async () => {
+      const filePath = await getCacheFilePath();
+      setCacheFilePath(filePath);
+
+      const fileExists = await exists(filePath);
+      if (fileExists) {
+        const fileContent = await readTextFile(filePath);
+        const validatedData = await parseData(fileContent);
+        if (validatedData) {
+          applyLoadedData(validatedData);
+        }
+      }
+    };
+
+    loadCachedData();
+  }, []);
 
   const saveDataToFile = async () => {
     try {
-      const dataToSave: Data = {
-        headers,
-        rows: rows.map(({ date, values, hidden }) => ({
-          date,
-          values,
-          hidden,
-        })),
-      };
-
-      // Validate the data before saving
-      try {
-        dataSchema.parse(dataToSave);
-      } catch (error) {
-        if (error instanceof ZodError) {
-          const errorMessage = error.issues
-            .map((err) => `${err.path.join(".")}: ${err.message}`)
-            .join("\n");
-
-          await message(`Cannot save invalid data:\n${errorMessage}`, {
-            title: "Validation Error",
-            kind: "error",
-          });
-          return;
-        }
-        throw error;
-      }
+      const dataToSave = prepareData();
 
       const filePath = await save({
         filters: [
@@ -115,42 +218,10 @@ function MainWindow() {
 
       if (selected && typeof selected === "string") {
         const fileContent = await readTextFile(selected);
-
-        let rawData;
-        try {
-          rawData = JSON.parse(fileContent);
-        } catch (parseError) {
-          await message("Invalid JSON file format", {
-            title: "Load Error",
-            kind: "error",
-          });
-          return;
+        const validatedData = await parseData(fileContent);
+        if (validatedData) {
+          applyLoadedData(validatedData);
         }
-
-        const validationResult = dataSchema.safeParse(rawData);
-
-        if (!validationResult.success) {
-          const errorMessage = validationResult.error.issues
-            .map((err) => `${err.path.join(".")}: ${err.message}`)
-            .join("\n");
-
-          await message(`Invalid data format:\n${errorMessage}`, {
-            title: "Validation Error",
-            kind: "error",
-          });
-          return;
-        }
-
-        const loadedData = validationResult.data;
-
-        setHeaders(loadedData.headers);
-
-        setRows(
-          loadedData.rows.map((row) => ({
-            ...row,
-            hidden: row.hidden ?? false,
-          }))
-        );
       }
     } catch (error) {
       console.error("Failed to load file:", error);
@@ -183,12 +254,15 @@ function MainWindow() {
 
       const lastRowDate = new Date(rows[rows.length - 1].date);
       const newDate = addMonths(lastRowDate, 3);
+      const lastRowValues =
+        rows[rows.length - 1]?.values ??
+        Object.fromEntries(headers.map((header) => [header, 1.0]));
 
       setRows([
         ...rows,
         {
           date: format(newDate, "yyyy-MM-dd"),
-          values: Object.fromEntries(headers.map((header) => [header, 1.0])),
+          values: { ...lastRowValues },
           hidden: true,
         },
       ]);
@@ -207,258 +281,101 @@ function MainWindow() {
   };
 
   const addColumn = () => {
-    try {
-      const newHeader = `AI Speedup ${headers.length + 1}`;
-      setHeaders([...headers, newHeader]);
-      setRows(
-        rows.map((row) => ({
-          ...row,
-          values: { ...row.values, [newHeader]: 1.0 },
-        }))
-      );
-    } catch (error) {
-      console.error("Error adding column:", error);
-      message(
-        `Error adding column: ${
-          error instanceof Error ? error.message : String(error)
-        }`,
-        {
-          title: "Error",
-          kind: "error",
-        }
-      );
-    }
+    const newHeader = `Lab ${headers.length + 1}`;
+    setHeaders([...headers, newHeader]);
+    setRows(
+      rows.map((row) => ({
+        ...row,
+        values: { ...row.values, [newHeader]: 1.0 },
+      }))
+    );
   };
 
   const removeColumn = (headerToRemove: string) => {
-    try {
-      // Don't allow removing the last column
-      if (headers.length <= 1) {
-        message("Cannot remove the last column", {
-          title: "Error",
-          kind: "error",
-        });
-        return;
-      }
-
-      setHeaders(headers.filter((header) => header !== headerToRemove));
-      setRows(
-        rows.map((row) => {
-          const newValues = { ...row.values };
-          delete newValues[headerToRemove];
-          return { ...row, values: newValues };
-        })
-      );
-    } catch (error) {
-      console.error("Error removing column:", error);
-      message(
-        `Error removing column: ${
-          error instanceof Error ? error.message : String(error)
-        }`,
-        {
-          title: "Error",
-          kind: "error",
-        }
-      );
-    }
+    setHeaders(headers.filter((header) => header !== headerToRemove));
+    setRows(
+      rows.map((row) => {
+        const newValues = { ...row.values };
+        delete newValues[headerToRemove];
+        return { ...row, values: newValues };
+      })
+    );
   };
 
   const updateHeader = (oldHeader: string, newHeader: string) => {
-    try {
-      if (newHeader.trim() === "") {
-        message("Header name cannot be empty", {
-          title: "Validation Error",
-          kind: "error",
-        });
-        return;
-      }
-
-      if (headers.includes(newHeader) && newHeader !== oldHeader) {
-        message("A column with this name already exists", {
-          title: "Validation Error",
-          kind: "error",
-        });
-        return;
-      }
-
-      setHeaders(
-        headers.map((header) => (header === oldHeader ? newHeader : header))
-      );
-      setRows(
-        rows.map((row) => {
-          const newValues = { ...row.values };
-          newValues[newHeader] = newValues[oldHeader];
-          delete newValues[oldHeader];
-          return { ...row, values: newValues };
-        })
-      );
-    } catch (error) {
-      console.error("Error updating header:", error);
-      message(
-        `Error updating header: ${
-          error instanceof Error ? error.message : String(error)
-        }`,
-        {
-          title: "Error",
-          kind: "error",
-        }
-      );
+    if (headers.includes(newHeader) && newHeader !== oldHeader) {
+      message("A column with this name already exists", {
+        title: "Validation Error",
+        kind: "error",
+      });
+      return;
     }
+
+    setHeaders(
+      headers.map((header) => (header === oldHeader ? newHeader : header))
+    );
+    setRows(
+      rows.map((row) => {
+        const newValues = { ...row.values };
+        newValues[newHeader] = newValues[oldHeader];
+        delete newValues[oldHeader];
+        return { ...row, values: newValues };
+      })
+    );
   };
 
   const incrementMonth = (rowIndex: number) => {
-    try {
-      const currentDate = new Date(rows[rowIndex].date);
-      const newDate = addMonths(currentDate, 1);
+    const currentDate = new Date(rows[rowIndex].date);
+    const newDate = addMonths(currentDate, 1);
 
-      const newRows = [...rows];
-      newRows[rowIndex].date = format(newDate, "yyyy-MM-dd");
-      setRows(newRows);
-    } catch (error) {
-      console.error("Error incrementing month:", error);
-      message(
-        `Error updating date: ${
-          error instanceof Error ? error.message : String(error)
-        }`,
-        {
-          title: "Error",
-          kind: "error",
-        }
-      );
-    }
+    const newRows = [...rows];
+    newRows[rowIndex].date = format(newDate, "yyyy-MM-dd");
+    setRows(newRows);
   };
 
   const decrementMonth = (rowIndex: number) => {
-    try {
-      const currentDate = new Date(rows[rowIndex].date);
-      const newDate = subMonths(currentDate, 1);
+    const currentDate = new Date(rows[rowIndex].date);
+    const newDate = subMonths(currentDate, 1);
 
-      const newRows = [...rows];
-      newRows[rowIndex].date = format(newDate, "yyyy-MM-dd");
-      setRows(newRows);
-    } catch (error) {
-      console.error("Error decrementing month:", error);
-      message(
-        `Error updating date: ${
-          error instanceof Error ? error.message : String(error)
-        }`,
-        {
-          title: "Error",
-          kind: "error",
-        }
-      );
-    }
+    const newRows = [...rows];
+    newRows[rowIndex].date = format(newDate, "yyyy-MM-dd");
+    setRows(newRows);
   };
 
   const updateValue = (rowIndex: number, header: string, value: string) => {
-    try {
-      const numValue = parseFloat(value);
-      if (isNaN(numValue)) {
-        message("Please enter a valid number", {
-          title: "Validation Error",
-          kind: "error",
-        });
-        return;
-      }
-
-      // Check if the value is positive
-      if (numValue <= 0) {
-        message("Value must be positive", {
-          title: "Validation Error",
-          kind: "error",
-        });
-        return;
-      }
-
-      const newRows = [...rows];
-      newRows[rowIndex].values[header] = numValue;
-      setRows(newRows);
-    } catch (error) {
-      console.error("Error updating value:", error);
-      message(
-        `Error updating value: ${
-          error instanceof Error ? error.message : String(error)
-        }`,
-        {
-          title: "Error",
-          kind: "error",
-        }
-      );
-    }
+    const numValue = parseFloat(value);
+    const newRows = [...rows];
+    newRows[rowIndex].values[header] = numValue;
+    setRows(newRows);
   };
 
   const removeRow = (rowIndex: number) => {
-    try {
-      setRows(rows.filter((_, index) => index !== rowIndex));
-    } catch (error) {
-      console.error("Error removing row:", error);
-      message(
-        `Error removing row: ${
-          error instanceof Error ? error.message : String(error)
-        }`,
-        {
-          title: "Error",
-          kind: "error",
-        }
-      );
-    }
+    setRows(rows.filter((_, index) => index !== rowIndex));
   };
 
   const toggleRowVisibility = (rowIndex: number) => {
-    try {
-      const newRows = [...rows];
-      newRows[rowIndex].hidden = !newRows[rowIndex].hidden;
-      setRows(newRows);
-    } catch (error) {
-      console.error("Error toggling row visibility:", error);
-      message(
-        `Error toggling visibility: ${
-          error instanceof Error ? error.message : String(error)
-        }`,
-        {
-          title: "Error",
-          kind: "error",
-        }
-      );
-    }
+    const newRows = [...rows];
+    newRows[rowIndex].hidden = !newRows[rowIndex].hidden;
+    setRows(newRows);
   };
 
   useEffect(() => {
-    try {
-      const visibleRows = rows.filter((row) => !row.hidden);
-      const dataToSend: Data = {
-        headers,
-        rows: visibleRows.map(({ date, values, hidden }) => ({
-          date,
-          values,
-          hidden,
-        })),
-      };
+    const dataToSend = prepareData();
 
-      emit("data", dataToSend).catch((error) => {
-        console.error("Error emitting data event:", error);
-        message(
-          `Error sending data to chart: ${
-            error instanceof Error ? error.message : String(error)
-          }`,
-          {
-            title: "Communication Error",
-            kind: "error",
-          }
-        );
-      });
-    } catch (error) {
-      console.error("Error preparing data for chart:", error);
+    emit("data", dataToSend).catch((error) => {
+      console.error("Error emitting data event:", error);
       message(
-        `Error preparing data for chart: ${
+        `Error sending data to chart: ${
           error instanceof Error ? error.message : String(error)
         }`,
         {
-          title: "Error",
+          title: "Communication Error",
           kind: "error",
         }
       );
-    }
+    });
+
+    cacheData(prepareData());
   }, [headers, rows]);
 
   useEffect(() => {
@@ -521,7 +438,7 @@ function MainWindow() {
                 <TableHead className="w-[200px]">Date</TableHead>
                 {headers.map((header, index) => (
                   <TableHead key={index}>
-                    <div className="flex items-center gap-2">
+                    <div className="flex items-center">
                       <Input
                         className="h-8"
                         value={header}
@@ -554,6 +471,11 @@ function MainWindow() {
                         size="icon"
                         onClick={() => decrementMonth(rowIndex)}
                         className="h-8 w-8"
+                        disabled={
+                          rowIndex > 0 &&
+                          new Date(subMonths(new Date(row.date), 1)) <=
+                            new Date(rows[rowIndex - 1].date)
+                        }
                       >
                         <ChevronLeft className="h-4 w-4" />
                       </Button>
@@ -566,6 +488,11 @@ function MainWindow() {
                         size="icon"
                         onClick={() => incrementMonth(rowIndex)}
                         className="h-8 w-8"
+                        disabled={
+                          rowIndex < rows.length - 1 &&
+                          new Date(addMonths(new Date(row.date), 1)) >=
+                            new Date(rows[rowIndex + 1].date)
+                        }
                       >
                         <ChevronRight className="h-4 w-4" />
                       </Button>
@@ -576,7 +503,8 @@ function MainWindow() {
                       <Input
                         type="number"
                         step="0.1"
-                        value={row.values[header] || 0}
+                        min={0}
+                        value={row.values[header]}
                         onChange={(e) =>
                           updateValue(rowIndex, header, e.target.value)
                         }
