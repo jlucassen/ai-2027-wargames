@@ -1,4 +1,5 @@
 import { listen } from "@tauri-apps/api/event";
+import { message } from "@tauri-apps/plugin-dialog";
 import { format, parseISO } from "date-fns";
 import { useEffect, useMemo, useState } from "react";
 import { CartesianGrid, Legend, Line, LineChart, XAxis, YAxis } from "recharts";
@@ -39,9 +40,19 @@ function ChartWindow() {
   const [data, setData] = useState<Data | null>(null);
 
   useEffect(() => {
-    const unlisten = listen("data", (event) => {
-      const parsedData = dataSchema.parse(event.payload);
-      setData(parsedData);
+    const unlisten = listen("data", async (event) => {
+      try {
+        const parsedData = dataSchema.parse(event.payload);
+        setData(parsedData);
+      } catch (error) {
+        console.error("Error parsing data:", error);
+        if (error instanceof Error) {
+          await message(`Error parsing data: ${error.message}`, {
+            title: "Data Error",
+            kind: "error",
+          });
+        }
+      }
     });
 
     return () => {
@@ -52,33 +63,61 @@ function ChartWindow() {
   const chartData = useMemo<ChartDataItem[]>(() => {
     if (!data) return [];
 
-    // Sort rows by date
-    const sortedRows = [...data.rows].sort(
-      (a, b) => new Date(a.date).getTime() - new Date(b.date).getTime()
-    );
+    try {
+      // Sort rows by date
+      const sortedRows = [...data.rows].sort(
+        (a, b) => new Date(a.date).getTime() - new Date(b.date).getTime()
+      );
 
-    // Transform the data for the chart
-    return sortedRows.map((row) => ({
-      date: row.date,
-      formattedDate: format(parseISO(row.date), "MMM yyyy"),
-      ...row.values,
-    }));
+      // Transform the data for the chart
+      return sortedRows.map((row) => ({
+        date: row.date,
+        formattedDate: format(parseISO(row.date), "MMM yyyy"),
+        ...row.values,
+      }));
+    } catch (error) {
+      console.error("Error preparing chart data:", error);
+      message(
+        `Error preparing chart data: ${
+          error instanceof Error ? error.message : String(error)
+        }`,
+        {
+          title: "Chart Error",
+          kind: "error",
+        }
+      );
+      return [];
+    }
   }, [data]);
 
   const chartConfig = useMemo(() => {
     if (!data?.headers) return {};
 
-    // Create config with appropriate colors for each header
-    return data.headers.reduce((config, header, index) => {
-      const colorIndex = index % CHART_COLORS.length;
-      return {
-        ...config,
-        [header]: {
-          label: header,
-          color: CHART_COLORS[colorIndex],
-        },
-      };
-    }, {}) as ChartConfig;
+    try {
+      // Create config with appropriate colors for each header
+      return data.headers.reduce((config, header, index) => {
+        const colorIndex = index % CHART_COLORS.length;
+        return {
+          ...config,
+          [header]: {
+            label: header,
+            color: CHART_COLORS[colorIndex],
+          },
+        };
+      }, {}) as ChartConfig;
+    } catch (error) {
+      console.error("Error creating chart config:", error);
+      message(
+        `Error creating chart configuration: ${
+          error instanceof Error ? error.message : String(error)
+        }`,
+        {
+          title: "Chart Config Error",
+          kind: "error",
+        }
+      );
+      return {};
+    }
   }, [data?.headers]);
 
   if (!data) {
@@ -90,9 +129,9 @@ function ChartWindow() {
   }
 
   return (
-    <Card className="w-full max-w-6xl mx-auto">
+    <Card className="w-full max-w-7xl mx-auto">
       <CardHeader className="text-center">
-        <CardTitle>AI R&D Speedup Over Time</CardTitle>
+        <CardTitle>AI R&D Progress Multiplier Over Time</CardTitle>
         <CardDescription>
           From{" "}
           {chartData.length > 0
@@ -128,7 +167,7 @@ function ChartWindow() {
             />
             <YAxis
               label={{
-                value: "AI R&D Speedup",
+                value: "AI R&D Progress Multiplier",
                 angle: -90,
                 position: "insideLeft",
                 style: { textAnchor: "middle" },

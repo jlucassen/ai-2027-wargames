@@ -1,4 +1,4 @@
-import { z } from "zod/v4";
+import { z } from "zod/v4-mini";
 
 export const dataSchema = z
   .object({
@@ -6,15 +6,18 @@ export const dataSchema = z
     rows: z.array(
       z.object({
         date: z.iso.date(),
-        values: z.record(z.string(), z.number().positive()),
+        values: z.record(z.string(), z.number().check(z.positive())),
+        hidden: z.optional(z.boolean()),
       })
     ),
   })
-  .refine((data) => {
-    return data.rows.every((row) => {
-      const rowKeys = Object.keys(row.values);
-      return rowKeys.every((key) => data.headers.includes(key));
-    });
-  }, {});
+  .check(
+    z.refine((data: Data) => {
+      return data.rows.every((row) => {
+        const rowKeys = Object.keys(row.values);
+        return rowKeys.every((key) => data.headers.includes(key));
+      });
+    }, {})
+  );
 
 export type Data = z.infer<typeof dataSchema>;
