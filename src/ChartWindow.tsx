@@ -15,11 +15,9 @@ import {
   ChartConfig,
   ChartContainer,
   ChartTooltip,
-  ChartTooltipContent,
 } from "@/components/ui/chart";
 import { type Data, dataSchema } from "./dataSchema";
 
-// Generate colors based on the predefined chart colors in the theme
 const CHART_COLORS = [
   "var(--chart-1)",
   "var(--chart-2)",
@@ -31,11 +29,41 @@ const CHART_COLORS = [
   "var(--chart-8)",
 ];
 
-// Define the chart data type
 type ChartDataItem = {
   date: string;
   formattedDate: string;
-  [key: string]: string | number; // Allow any string key with string or number values
+  [key: string]: string | number;
+};
+
+const applyLogTransform = (value: number): number => {
+  if (value <= 1) return value;
+  return Math.log10(value) + 1;
+};
+
+const reverseLogTransform = (value: number): number => {
+  if (value <= 1) return value;
+  return Math.pow(10, value - 1);
+};
+
+const CUSTOM_Y_TICKS = [2, 3, 10, 100, 2000];
+const TRANSFORMED_Y_TICKS = CUSTOM_Y_TICKS.map(applyLogTransform);
+
+const CUSTOM_Y_LABELS = {
+  2: "Weak Autonomous remote worker",
+  3: "Autonomous remote worker",
+  10: "Strong autonomous remote worker",
+  100: "Superhuman genius",
+  2000: "Superintelligence",
+};
+
+const formatYAxisTick = (value: number) => {
+  const originalValue = reverseLogTransform(value);
+  const roundedValue = Math.round(originalValue * 100) / 100;
+
+  return `${roundedValue}x — ${
+    CUSTOM_Y_LABELS[roundedValue as keyof typeof CUSTOM_Y_LABELS] ||
+    roundedValue
+  }`;
 };
 
 function ChartWindow() {
@@ -66,19 +94,29 @@ function ChartWindow() {
     if (!data) return [];
 
     try {
-      // Sort rows by date
       const sortedRows = [...data.rows]
         .filter((row) => !row.hidden)
         .sort(
           (a, b) => new Date(a.date).getTime() - new Date(b.date).getTime()
         );
 
-      // Transform the data for the chart
-      return sortedRows.map((row) => ({
-        date: row.date,
-        formattedDate: format(parseISO(row.date), "MMM yyyy"),
-        ...row.values,
-      }));
+      return sortedRows.map((row) => {
+        const transformedValues: Record<string, number | string> = {};
+
+        Object.entries(row.values).forEach(([key, value]) => {
+          if (typeof value === "number") {
+            transformedValues[key] = applyLogTransform(value);
+          } else {
+            transformedValues[key] = value;
+          }
+        });
+
+        return {
+          date: row.date,
+          formattedDate: format(parseISO(row.date), "MMM yyyy"),
+          ...transformedValues,
+        };
+      });
     } catch (error) {
       console.error("Error preparing chart data:", error);
       message(
@@ -98,7 +136,6 @@ function ChartWindow() {
     if (!data?.headers) return {};
 
     try {
-      // Create config with appropriate colors for each header
       return data.headers.reduce((config, header, index) => {
         const colorIndex = index % CHART_COLORS.length;
         return {
@@ -131,6 +168,48 @@ function ChartWindow() {
       </div>
     );
   }
+
+  const CustomTooltipContent = (props: any) => {
+    const { active, payload, label } = props;
+
+    if (!active || !payload || !payload.length) {
+      return null;
+    }
+
+    return (
+      <div className="rounded-lg border bg-background p-2 shadow-sm">
+        <div className="flex gap-2">
+          <div className="flex flex-col">
+            <span className="text-sm text-muted-foreground">{label}</span>
+          </div>
+          <div className="flex flex-col">
+            {payload.map((entry: any, index: number) => {
+              const value = entry.value;
+              const name = entry.name;
+
+              const displayValue =
+                typeof value === "number"
+                  ? reverseLogTransform(value).toFixed(2)
+                  : value;
+
+              return (
+                <div key={`item-${index}`} className="flex items-center gap-2">
+                  <span
+                    className="h-3 w-3 rounded-full"
+                    style={{ backgroundColor: entry.color }}
+                  />
+                  <span className="text-sm font-medium">{name}</span>
+                  <span className="text-sm text-muted-foreground ml-auto">
+                    {displayValue}x
+                  </span>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      </div>
+    );
+  };
 
   return (
     <Card className="w-full max-w-7xl mx-auto">
@@ -170,16 +249,15 @@ function ChartWindow() {
               tickMargin={8}
             />
             <YAxis
-              label={{
-                value: "AI R&D Progress Multiplier",
-                angle: -90,
-                position: "insideLeft",
-                style: { textAnchor: "middle" },
-              }}
               scale="log"
-              domain={["auto", "auto"]}
+              domain={[1, "auto"]}
+              ticks={TRANSFORMED_Y_TICKS}
+              tickFormatter={formatYAxisTick}
+              tickMargin={5}
+              width={150}
+              allowDataOverflow
             />
-            <ChartTooltip cursor={false} content={<ChartTooltipContent />} />
+            <ChartTooltip cursor={false} content={<CustomTooltipContent />} />
             <Legend />
             {data.headers.map((header, index) => (
               <Line
