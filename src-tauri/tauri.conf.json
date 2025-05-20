@@ -14,14 +14,14 @@
       {
         "label": "main",
         "title": "AI 2027 Wargames",
-        "width": 800,
-        "height": 600
+        "width": 1200,
+        "height": 800
       },
       {
         "label": "chart",
         "title": "AI 2027 Wargames - Chart",
-        "width": 800,
-        "height": 600
+        "width": 1200,
+        "height": 800
       }
     ],
     "security": {

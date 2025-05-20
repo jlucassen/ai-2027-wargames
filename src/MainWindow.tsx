@@ -15,6 +15,7 @@ import {
   Eye,
   EyeOff,
   Plus,
+  RefreshCw,
   Save,
   Trash2,
   Upload,
@@ -32,41 +33,10 @@ import {
   TableRow,
 } from "./components/ui/table";
 import { dataSchema, type Data } from "./dataSchema";
+import DEFAULT_DATA from "./default-data.json";
 
 function MainWindow() {
-  const [headers, setHeaders] = useState<string[]>([
-    "OpenAI",
-    "GDM/Anthropic",
-    "Meta/xAI",
-    "CCP",
-  ]);
-  const [rows, setRows] = useState<Data["rows"]>([
-    {
-      date: "2027-10-14",
-      values: { OpenAI: 2, "GDM/Anthropic": 1, "Meta/xAI": 1, CCP: 2 },
-      hidden: false,
-    },
-    {
-      date: "2028-01-14",
-      values: { OpenAI: 3, "GDM/Anthropic": 2, "Meta/xAI": 1, CCP: 2.4 },
-      hidden: false,
-    },
-    {
-      date: "2028-04-14",
-      values: { OpenAI: 10, "GDM/Anthropic": 3, "Meta/xAI": 2, CCP: 3 },
-      hidden: false,
-    },
-    {
-      date: "2028-07-14",
-      values: { OpenAI: 100, "GDM/Anthropic": 10, "Meta/xAI": 3, CCP: 5.5 },
-      hidden: false,
-    },
-    {
-      date: "2028-10-14",
-      values: { OpenAI: 2000, "GDM/Anthropic": 100, "Meta/xAI": 10, CCP: 10 },
-      hidden: false,
-    },
-  ]);
+  const [data, setData] = useState<Data>(DEFAULT_DATA);
   const [cacheFilePath, setCacheFilePath] = useState<string | null>(null);
 
   const getCacheFilePath = async (): Promise<string> => {
@@ -80,8 +50,8 @@ function MainWindow() {
 
   const prepareData = () => {
     return {
-      headers,
-      rows: rows.map((row) => {
+      ...data,
+      rows: data.rows.map((row) => {
         return {
           ...row,
           values: Object.fromEntries(
@@ -124,16 +94,16 @@ function MainWindow() {
   };
 
   const applyLoadedData = (loadedData: Data) => {
-    setHeaders(loadedData.headers);
-    setRows(
-      loadedData.rows.map((row) => ({
+    setData({
+      ...loadedData,
+      rows: loadedData.rows.map((row) => ({
         ...row,
         hidden: row.hidden ?? false,
-      }))
-    );
+      })),
+    });
   };
 
-  const cacheData = async (data: Data) => {
+  const cacheData = async (dataToCache: Data) => {
     try {
       if (!cacheFilePath) {
         const filePath = await getCacheFilePath();
@@ -141,7 +111,11 @@ function MainWindow() {
       }
 
       if (cacheFilePath) {
-        await writeTextFile(cacheFilePath, JSON.stringify(data, null, 2), {});
+        await writeTextFile(
+          cacheFilePath,
+          JSON.stringify(dataToCache, null, 2),
+          {}
+        );
         console.log("Data cached successfully");
       }
     } catch (error) {
@@ -237,35 +211,44 @@ function MainWindow() {
     }
   };
 
+  const resetToDefaultData = () => {
+    setData(DEFAULT_DATA);
+  };
+
   const addRow = () => {
     try {
-      if (rows.length === 0) {
-        // Handle case with no existing rows
-        const today = new Date();
-        setRows([
-          {
-            date: format(today, "yyyy-MM-dd"),
-            values: Object.fromEntries(headers.map((header) => [header, 1.0])),
-            hidden: false,
-          },
-        ]);
+      if (data.rows.length === 0) {
+        const today = new Date("2027-10-14");
+        setData({
+          ...data,
+          rows: [
+            {
+              date: format(today, "yyyy-MM-dd"),
+              values: Object.fromEntries(
+                data.headers.map((header) => [header, 1.0])
+              ),
+              hidden: false,
+            },
+          ],
+        });
         return;
       }
 
-      const lastRowDate = new Date(rows[rows.length - 1].date);
+      const lastRowDate = new Date(data.rows[data.rows.length - 1].date);
       const newDate = addMonths(lastRowDate, 3);
-      const lastRowValues =
-        rows[rows.length - 1]?.values ??
-        Object.fromEntries(headers.map((header) => [header, 1.0]));
+      const lastRowValues = data.rows[data.rows.length - 1]?.values;
 
-      setRows([
-        ...rows,
-        {
-          date: format(newDate, "yyyy-MM-dd"),
-          values: { ...lastRowValues },
-          hidden: true,
-        },
-      ]);
+      setData({
+        ...data,
+        rows: [
+          ...data.rows,
+          {
+            date: format(newDate, "yyyy-MM-dd"),
+            values: { ...lastRowValues },
+            hidden: true,
+          },
+        ],
+      });
     } catch (error) {
       console.error("Error adding row:", error);
       message(
@@ -281,29 +264,29 @@ function MainWindow() {
   };
 
   const addColumn = () => {
-    const newHeader = `Lab ${headers.length + 1}`;
-    setHeaders([...headers, newHeader]);
-    setRows(
-      rows.map((row) => ({
+    const newHeader = `Lab ${data.headers.length + 1}`;
+    setData({
+      headers: [...data.headers, newHeader],
+      rows: data.rows.map((row) => ({
         ...row,
         values: { ...row.values, [newHeader]: 1.0 },
-      }))
-    );
+      })),
+    });
   };
 
   const removeColumn = (headerToRemove: string) => {
-    setHeaders(headers.filter((header) => header !== headerToRemove));
-    setRows(
-      rows.map((row) => {
+    setData({
+      headers: data.headers.filter((header) => header !== headerToRemove),
+      rows: data.rows.map((row) => {
         const newValues = { ...row.values };
         delete newValues[headerToRemove];
         return { ...row, values: newValues };
-      })
-    );
+      }),
+    });
   };
 
   const updateHeader = (oldHeader: string, newHeader: string) => {
-    if (headers.includes(newHeader) && newHeader !== oldHeader) {
+    if (data.headers.includes(newHeader) && newHeader !== oldHeader) {
       message("A column with this name already exists", {
         title: "Validation Error",
         kind: "error",
@@ -311,52 +294,55 @@ function MainWindow() {
       return;
     }
 
-    setHeaders(
-      headers.map((header) => (header === oldHeader ? newHeader : header))
-    );
-    setRows(
-      rows.map((row) => {
+    setData({
+      headers: data.headers.map((header) =>
+        header === oldHeader ? newHeader : header
+      ),
+      rows: data.rows.map((row) => {
         const newValues = { ...row.values };
         newValues[newHeader] = newValues[oldHeader];
         delete newValues[oldHeader];
         return { ...row, values: newValues };
-      })
-    );
+      }),
+    });
   };
 
   const incrementMonth = (rowIndex: number) => {
-    const currentDate = new Date(rows[rowIndex].date);
+    const currentDate = new Date(data.rows[rowIndex].date);
     const newDate = addMonths(currentDate, 1);
 
-    const newRows = [...rows];
+    const newRows = [...data.rows];
     newRows[rowIndex].date = format(newDate, "yyyy-MM-dd");
-    setRows(newRows);
+    setData({ ...data, rows: newRows });
   };
 
   const decrementMonth = (rowIndex: number) => {
-    const currentDate = new Date(rows[rowIndex].date);
+    const currentDate = new Date(data.rows[rowIndex].date);
     const newDate = subMonths(currentDate, 1);
 
-    const newRows = [...rows];
+    const newRows = [...data.rows];
     newRows[rowIndex].date = format(newDate, "yyyy-MM-dd");
-    setRows(newRows);
+    setData({ ...data, rows: newRows });
   };
 
   const updateValue = (rowIndex: number, header: string, value: string) => {
     const numValue = parseFloat(value);
-    const newRows = [...rows];
+    const newRows = [...data.rows];
     newRows[rowIndex].values[header] = numValue;
-    setRows(newRows);
+    setData({ ...data, rows: newRows });
   };
 
   const removeRow = (rowIndex: number) => {
-    setRows(rows.filter((_, index) => index !== rowIndex));
+    setData({
+      ...data,
+      rows: data.rows.filter((_, index) => index !== rowIndex),
+    });
   };
 
   const toggleRowVisibility = (rowIndex: number) => {
-    const newRows = [...rows];
+    const newRows = [...data.rows];
     newRows[rowIndex].hidden = !newRows[rowIndex].hidden;
-    setRows(newRows);
+    setData({ ...data, rows: newRows });
   };
 
   useEffect(() => {
@@ -376,7 +362,7 @@ function MainWindow() {
     });
 
     cacheData(prepareData());
-  }, [headers, rows]);
+  }, [data]);
 
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
@@ -422,6 +408,9 @@ function MainWindow() {
           <Button variant="outline" size="sm" onClick={loadDataFromFile}>
             <Upload className="mr-2 h-4 w-4" /> Load
           </Button>
+          <Button variant="outline" size="sm" onClick={resetToDefaultData}>
+            <RefreshCw className="mr-2 h-4 w-4" /> Reset
+          </Button>
           <Button variant="outline" size="sm" onClick={addColumn}>
             <Plus className="mr-2 h-4 w-4" /> Add Column
           </Button>
@@ -436,7 +425,7 @@ function MainWindow() {
             <TableHeader>
               <TableRow>
                 <TableHead className="w-[200px]">Date</TableHead>
-                {headers.map((header, index) => (
+                {data.headers.map((header, index) => (
                   <TableHead key={index}>
                     <div className="flex items-center">
                       <Input
@@ -459,7 +448,7 @@ function MainWindow() {
               </TableRow>
             </TableHeader>
             <TableBody>
-              {rows.map((row, rowIndex) => (
+              {data.rows.map((row, rowIndex) => (
                 <TableRow
                   key={rowIndex}
                   className={row.hidden ? "opacity-60" : ""}
@@ -474,7 +463,7 @@ function MainWindow() {
                         disabled={
                           rowIndex > 0 &&
                           new Date(subMonths(new Date(row.date), 1)) <=
-                            new Date(rows[rowIndex - 1].date)
+                            new Date(data.rows[rowIndex - 1].date)
                         }
                       >
                         <ChevronLeft className="h-4 w-4" />
@@ -489,16 +478,16 @@ function MainWindow() {
                         onClick={() => incrementMonth(rowIndex)}
                         className="h-8 w-8"
                         disabled={
-                          rowIndex < rows.length - 1 &&
+                          rowIndex < data.rows.length - 1 &&
                           new Date(addMonths(new Date(row.date), 1)) >=
-                            new Date(rows[rowIndex + 1].date)
+                            new Date(data.rows[rowIndex + 1].date)
                         }
                       >
                         <ChevronRight className="h-4 w-4" />
                       </Button>
                     </div>
                   </TableCell>
-                  {headers.map((header, index) => (
+                  {data.headers.map((header, index) => (
                     <TableCell key={index}>
                       <Input
                         type="number"

@@ -1,0 +1,55 @@
+{
+  "headers": ["OpenAI", "GDM/Anthropic", "Meta/xAI", "CCP"],
+  "rows": [
+    {
+      "date": "2027-10-14",
+      "values": {
+        "OpenAI": 2,
+        "GDM/Anthropic": 1.6,
+        "Meta/xAI": 1.3,
+        "CCP": 2
+      },
+      "hidden": false
+    },
+    {
+      "date": "2028-01-14",
+      "values": {
+        "OpenAI": 3,
+        "GDM/Anthropic": 2,
+        "Meta/xAI": 1.6,
+        "CCP": 2.4
+      },
+      "hidden": false
+    },
+    {
+      "date": "2028-04-14",
+      "values": {
+        "OpenAI": 10,
+        "GDM/Anthropic": 3,
+        "Meta/xAI": 2,
+        "CCP": 3
+      },
+      "hidden": false
+    },
+    {
+      "date": "2028-07-14",
+      "values": {
+        "OpenAI": 100,
+        "GDM/Anthropic": 10,
+        "Meta/xAI": 3,
+        "CCP": 5
+      },
+      "hidden": true
+    },
+    {
+      "date": "2028-10-14",
+      "values": {
+        "OpenAI": 2000,
+        "GDM/Anthropic": 100,
+        "Meta/xAI": 10,
+        "CCP": 10
+      },
+      "hidden": true
+    }
+  ]
+}

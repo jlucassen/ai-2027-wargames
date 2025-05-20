@@ -8,7 +8,6 @@ import {
   Card,
   CardContent,
   CardDescription,
-  CardFooter,
   CardHeader,
   CardTitle,
 } from "@/components/ui/card";
@@ -27,6 +26,9 @@ const CHART_COLORS = [
   "var(--chart-3)",
   "var(--chart-4)",
   "var(--chart-5)",
+  "var(--chart-6)",
+  "var(--chart-7)",
+  "var(--chart-8)",
 ];
 
 // Define the chart data type
@@ -193,9 +195,6 @@ function ChartWindow() {
           </LineChart>
         </ChartContainer>
       </CardContent>
-      <CardFooter>
-        <div className="w-full text-center">Footer text</div>
-      </CardFooter>
     </Card>
   );
 }
