@@ -8,7 +8,7 @@ on:
 
 jobs:
   publish-tauri:
-    timeout-minutes: 120
+    timeout-minutes: 60
     permissions:
       contents: write
     strategy:
@@ -89,10 +89,6 @@ jobs:
           APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
           APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
           APPLE_SIGNING_IDENTITY: ${{ env.CERT_ID }}
-          APPLE_ID: ${{ secrets.APPLE_ID }}
-          APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
-          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
-          APPLE_SKIP_NOTARIZATION: true
         with:
           tagName: app-v__VERSION__
           releaseName: 'App v__VERSION__'
