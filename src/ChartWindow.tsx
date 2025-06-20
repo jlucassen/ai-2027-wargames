@@ -1,6 +1,6 @@
 import { format, parseISO } from "date-fns";
-import { useMemo } from "react";
-import { CartesianGrid, Legend, Line, LineChart, Tooltip, XAxis, YAxis } from "recharts";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { CartesianGrid, Legend, Line, LineChart, XAxis, YAxis } from "recharts";
 
 import {
   Card,
@@ -63,6 +63,10 @@ interface ChartWindowProps {
 }
 
 function ChartWindow({ data }: ChartWindowProps) {
+  const [tooltipData, setTooltipData] = useState<any>(null);
+  const [tooltipPosition, setTooltipPosition] = useState<{ x: number; y: number } | null>(null);
+  const chartRef = useRef<HTMLDivElement>(null);
+  const tooltipRef = useRef<HTMLDivElement>(null);
   const chartData = useMemo(() => {
     if (!data) return [];
 
@@ -124,31 +128,95 @@ function ChartWindow({ data }: ChartWindowProps) {
     );
   }
 
-  const CustomTooltipContent = (props: any) => {
-    const { active, payload, label } = props;
+  // Handle clicks outside tooltip to dismiss it
+  useEffect(() => {
+    const handleClickOutside = (event: MouseEvent) => {
+      const target = event.target as Element;
+      
+      // Don't dismiss if clicking on a dot
+      if (target.closest('.recharts-dot')) {
+        return;
+      }
+      
+      // Don't dismiss if clicking inside the tooltip
+      if (tooltipRef.current && tooltipRef.current.contains(target)) {
+        return;
+      }
+      
+      // Dismiss tooltip for any other clicks
+      setTooltipData(null);
+      setTooltipPosition(null);
+    };
 
-    if (!active || !payload || !payload.length) {
+    if (tooltipData) {
+      document.addEventListener('mousedown', handleClickOutside);
+      return () => {
+        document.removeEventListener('mousedown', handleClickOutside);
+      };
+    }
+  }, [tooltipData]);
+
+  const handleDotClick = (data: any, event: any) => {
+    console.log('Dot clicked:', data, event); // Debug log
+    
+    if (event && event.target) {
+      const rect = event.target.getBoundingClientRect();
+      const scrollX = window.scrollX || document.documentElement.scrollLeft;
+      const scrollY = window.scrollY || document.documentElement.scrollTop;
+      
+      setTooltipPosition({
+        x: rect.left + scrollX + rect.width / 2,
+        y: rect.top + scrollY - 10
+      });
+      
+      // Create payload for all data series at this point
+      const payload = data.headers.map((header: string, index: number) => ({
+        name: header,
+        value: data[header],
+        color: CHART_COLORS[index % CHART_COLORS.length]
+      })).filter((item: any) => typeof item.value === 'number' && item.value !== undefined);
+      
+      console.log('Setting tooltip data:', { label: data.timestamp, payload }); // Debug log
+      
+      setTooltipData({
+        label: data.timestamp,
+        payload: payload
+      });
+    }
+  };
+
+  const CustomTooltipContent = () => {
+    if (!tooltipData || !tooltipData.payload || !tooltipData.payload.length) {
       return null;
     }
 
     const formattedLabel =
-      typeof label === "number" ? format(new Date(label), "MMMM yyyy") : label;
+      typeof tooltipData.label === "number" ? format(new Date(tooltipData.label), "MMMM yyyy") : tooltipData.label;
 
     return (
-      <div className={`rounded-lg border p-4 shadow-lg ${isDarkMode ? 'bg-gray-800 text-white border-gray-700' : 'bg-white text-gray-800 border-gray-200'}`}>
+      <div 
+        ref={tooltipRef}
+        className={`absolute z-50 rounded-lg border p-4 shadow-lg pointer-events-auto ${isDarkMode ? 'bg-gray-800 text-white border-gray-700' : 'bg-white text-gray-800 border-gray-200'}`}
+        style={{
+          left: tooltipPosition?.x,
+          top: tooltipPosition?.y,
+          transform: 'translate(-50%, -100%)'
+        }}
+      >
         <div className="flex flex-col gap-3">
           <div className="font-bold text-lg border-b pb-2 mb-1">
             {formattedLabel}
           </div>
           <div className="flex flex-col gap-3">
-            {payload.map((entry: any, index: number) => {
+            {tooltipData.payload.map((entry: any, index: number) => {
               const value = entry.value;
               const name = entry.name;
 
-              const displayValue =
-                typeof value === "number"
-                  ? reverseLogTransform(value).toFixed(2)
-                  : value;
+              const transformedValue = typeof value === "number" ? reverseLogTransform(value) : value;
+              const roundedValue = typeof transformedValue === "number" ? Math.round(transformedValue * 100) / 100 : transformedValue;
+              const displayValue = typeof roundedValue === "number" 
+                ? (roundedValue % 1 === 0 ? roundedValue.toString() : roundedValue.toFixed(2))
+                : roundedValue;
                   
               // Look up the label if it exists
               const label = CUSTOM_Y_LABELS[Math.round(reverseLogTransform(value) * 100) / 100 as keyof typeof CUSTOM_Y_LABELS];
@@ -174,7 +242,8 @@ function ChartWindow({ data }: ChartWindowProps) {
   };
 
   return (
-    <Card className="w-full h-[calc(100vh-120px)] mx-auto">
+    <div ref={chartRef} className="relative">
+      <Card className="w-full h-[calc(100vh-120px)] mx-auto">
       <CardHeader className="text-center pb-2">
         <CardTitle className="text-2xl font-bold">AI 2027 Tabletop Exercise - R&D Progress Multiplier</CardTitle>
         <CardDescription className="text-lg">
@@ -235,7 +304,6 @@ function ChartWindow({ data }: ChartWindowProps) {
               }}
               allowDataOverflow
             />
-            <Tooltip content={<CustomTooltipContent />} />
             <Legend 
               layout="vertical"
               align="right" 
@@ -279,8 +347,26 @@ function ChartWindow({ data }: ChartWindowProps) {
                 type="monotone"
                 stroke={CHART_COLORS[index % CHART_COLORS.length]}
                 strokeWidth={3}
-                dot={{ r: 5, fill: CHART_COLORS[index % CHART_COLORS.length], strokeWidth: 0 }}
-                activeDot={{ r: 8, fill: CHART_COLORS[index % CHART_COLORS.length], strokeWidth: 0 }}
+                dot={{ 
+                  r: 5, 
+                  fill: CHART_COLORS[index % CHART_COLORS.length], 
+                  strokeWidth: 0,
+                  cursor: 'pointer',
+                  onClick: (data: any, event: any) => {
+                    const enrichedData = { ...data.payload, headers: data.headers || Object.keys(data.payload).filter(key => key !== 'date' && key !== 'timestamp') };
+                    handleDotClick(enrichedData, event);
+                  }
+                }}
+                activeDot={{ 
+                  r: 8, 
+                  fill: CHART_COLORS[index % CHART_COLORS.length], 
+                  strokeWidth: 0,
+                  cursor: 'pointer',
+                  onClick: (data: any, event: any) => {
+                    const enrichedData = { ...data.payload, headers: data.headers || Object.keys(data.payload).filter(key => key !== 'date' && key !== 'timestamp') };
+                    handleDotClick(enrichedData, event);
+                  }
+                }}
                 isAnimationActive={true}
                 animationDuration={500}
               />
@@ -288,7 +374,9 @@ function ChartWindow({ data }: ChartWindowProps) {
           </LineChart>
         </div>
       </CardContent>
+      {tooltipData && tooltipPosition && <CustomTooltipContent />}
     </Card>
+    </div>
   );
 }
 
