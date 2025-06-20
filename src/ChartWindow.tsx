@@ -177,7 +177,10 @@ function ChartWindow({ data, onDataUpdate }: ChartWindowProps) {
   // Mouse event handlers for dragging
   const handleMouseDown = (header: string, dataIndex: number, event: any, value: number) => {
     if (event && event.target && chartRef.current) {
-      const chartRect = chartRef.current.getBoundingClientRect();
+      // Find the SVG element for accurate coordinate mapping
+      const svgElement = chartRef.current.querySelector('svg');
+      const chartRect = svgElement ? svgElement.getBoundingClientRect() : chartRef.current.getBoundingClientRect();
+      
       setIsDragging(true);
       setDragData({
         header,
@@ -193,27 +196,47 @@ function ChartWindow({ data, onDataUpdate }: ChartWindowProps) {
   };
 
   const handleMouseMove = useCallback((event: MouseEvent) => {
-    if (!isDragging || !dragData) return;
+    if (!isDragging || !dragData || !chartRef.current) return;
 
-    // Get the chart's plotting area dimensions (excluding margins)
-    const chartMargin = { top: 30, bottom: 50, left: 300, right: 200 }; // From LineChart margins
-    const chartPlotHeight = dragData.chartRect.height - chartMargin.top - chartMargin.bottom;
-    const chartPlotTop = dragData.chartRect.top + chartMargin.top;
-    
-    // Calculate current mouse Y relative to chart plot area
-    const mouseYInChart = event.clientY - chartPlotTop;
-    const relativeY = 1 - (mouseYInChart / chartPlotHeight); // Flip Y axis (0 at bottom, 1 at top)
-    
-    // Map to log scale range (our Y axis goes from log(1) to log(2000))
-    const minLogValue = Math.log(1);
-    const maxLogValue = Math.log(2000);
-    const targetLogValue = minLogValue + (relativeY * (maxLogValue - minLogValue));
-    const newValue = Math.max(1, Math.min(2000, Math.exp(targetLogValue))); // Clamp to valid range
+    // Find the SVG and get the actual plotting area
+    const svgElement = chartRef.current.querySelector('svg');
+    if (!svgElement) return;
 
-    // Update local data
-    const updatedData = { ...localData };
-    updatedData.rows[dragData.dataIndex].values[dragData.header] = newValue;
-    setLocalData(updatedData);
+    // Get SVG coordinate system
+    const svgRect = svgElement.getBoundingClientRect();
+    const svgPoint = svgElement.createSVGPoint();
+    svgPoint.x = event.clientX;
+    svgPoint.y = event.clientY;
+    const svgCoords = svgPoint.matrixTransform(svgElement.getScreenCTM()?.inverse());
+
+    // Get the chart's actual dimensions
+    const chartWidth = window.innerWidth > 1200 ? window.innerWidth - 150 : window.innerWidth - 50;
+    const chartHeight = window.innerHeight - 150;
+    const margin = { top: 30, bottom: 50, left: 40, right: 200 };
+    const yAxisWidth = 260;
+    
+    // Calculate plot area bounds
+    const plotLeft = margin.left + yAxisWidth;
+    const plotRight = chartWidth - margin.right;
+    const plotTop = margin.top;
+    const plotBottom = chartHeight - margin.bottom;
+    const plotHeight = plotBottom - plotTop;
+    
+    // Map SVG Y coordinate to value range
+    if (svgCoords.y >= plotTop && svgCoords.y <= plotBottom) {
+      const relativeY = (plotBottom - svgCoords.y) / plotHeight; // 0 at bottom, 1 at top
+      
+      // Use the same domain as the YAxis
+      const minTransformedValue = applyLogTransform(1);
+      const maxTransformedValue = applyLogTransform(2000);
+      const targetTransformedValue = minTransformedValue + (relativeY * (maxTransformedValue - minTransformedValue));
+      const newValue = Math.max(1, Math.min(2000, reverseLogTransform(targetTransformedValue)));
+
+      // Update local data
+      const updatedData = { ...localData };
+      updatedData.rows[dragData.dataIndex].values[dragData.header] = newValue;
+      setLocalData(updatedData);
+    }
   }, [isDragging, dragData, localData]);
 
   const handleMouseUp = useCallback(() => {
