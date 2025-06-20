@@ -203,21 +203,16 @@ function ChartWindow({ data, onDataUpdate }: ChartWindowProps) {
     if (!svgElement) return;
 
     // Get SVG coordinate system
-    const svgRect = svgElement.getBoundingClientRect();
     const svgPoint = svgElement.createSVGPoint();
     svgPoint.x = event.clientX;
     svgPoint.y = event.clientY;
     const svgCoords = svgPoint.matrixTransform(svgElement.getScreenCTM()?.inverse());
 
     // Get the chart's actual dimensions
-    const chartWidth = window.innerWidth > 1200 ? window.innerWidth - 150 : window.innerWidth - 50;
     const chartHeight = window.innerHeight - 150;
     const margin = { top: 30, bottom: 50, left: 40, right: 200 };
-    const yAxisWidth = 260;
     
     // Calculate plot area bounds
-    const plotLeft = margin.left + yAxisWidth;
-    const plotRight = chartWidth - margin.right;
     const plotTop = margin.top;
     const plotBottom = chartHeight - margin.bottom;
     const plotHeight = plotBottom - plotTop;
@@ -431,7 +426,7 @@ function ChartWindow({ data, onDataUpdate }: ChartWindowProps) {
                 boxShadow: '0 4px 6px rgba(0, 0, 0, 0.1)'
               }}
               // Sort payload to match the line order from top to bottom at the right edge
-              formatter={(value, entry) => {
+              formatter={(value) => {
                 return <span style={{ fontSize: '20px', color: isDarkMode ? '#fff' : '#000' }}>{value}</span>;
               }}
               payload={chartData.length > 0 
@@ -439,9 +434,9 @@ function ChartWindow({ data, onDataUpdate }: ChartWindowProps) {
                   // Sort by the last data point values in descending order
                   .map(header => ({
                     value: header,
-                    type: 'line',
+                    type: 'line' as const,
                     color: CHART_COLORS[localData.headers.indexOf(header) % CHART_COLORS.length],
-                    dataValue: reverseLogTransform(chartData[chartData.length - 1][header] || 0)
+                    dataValue: reverseLogTransform((chartData[chartData.length - 1] as any)[header] || 0)
                   }))
                   .sort((a, b) => b.dataValue - a.dataValue)
                 : []

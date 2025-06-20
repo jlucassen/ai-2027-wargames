@@ -62,7 +62,7 @@ export const ToastProvider: React.FC<{ children: React.ReactNode }> = ({ childre
 };
 
 const ToastItem: React.FC<{ toast: Toast; onDismiss: () => void }> = ({ toast, onDismiss }) => {
-  const { id, message, title, type } = toast;
+  const { message, title, type } = toast;
 
   const getIcon = () => {
     switch (type) {
