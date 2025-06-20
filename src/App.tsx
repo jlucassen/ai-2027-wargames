@@ -26,7 +26,7 @@ function App() {
           <main className="container mx-auto py-6 px-4">
             <Routes>
               <Route path="/" element={<MainWindow data={data} setData={setData} />} />
-              <Route path="/chart" element={<ChartWindow data={data} />} />
+              <Route path="/chart" element={<ChartWindow data={data} onDataUpdate={setData} />} />
             </Routes>
           </main>
         </div>

@@ -1,5 +1,5 @@
 import { format, parseISO } from "date-fns";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { CartesianGrid, Legend, Line, LineChart, XAxis, YAxis } from "recharts";
 
 import {
@@ -60,18 +60,36 @@ const formatYAxisTick = (value: number) => {
 
 interface ChartWindowProps {
   data: Data;
+  onDataUpdate?: (updatedData: Data) => void;
 }
 
-function ChartWindow({ data }: ChartWindowProps) {
+function ChartWindow({ data, onDataUpdate }: ChartWindowProps) {
   const [tooltipData, setTooltipData] = useState<any>(null);
   const [tooltipPosition, setTooltipPosition] = useState<{ x: number; y: number } | null>(null);
   const chartRef = useRef<HTMLDivElement>(null);
   const tooltipRef = useRef<HTMLDivElement>(null);
+  
+  // Drag state
+  const [isDragging, setIsDragging] = useState(false);
+  const [dragData, setDragData] = useState<{
+    header: string;
+    dataIndex: number;
+    initialY: number;
+    initialValue: number;
+    chartRect: DOMRect;
+  } | null>(null);
+  const [localData, setLocalData] = useState<Data>(data);
+
+  // Update local data when props change
+  useEffect(() => {
+    setLocalData(data);
+  }, [data]);
+
   const chartData = useMemo(() => {
-    if (!data) return [];
+    if (!localData) return [];
 
     try {
-      const sortedRows = [...data.rows]
+      const sortedRows = [...localData.rows]
         .filter((row) => !row.hidden)
         .sort(
           (a, b) => new Date(a.date).getTime() - new Date(b.date).getTime()
@@ -99,7 +117,7 @@ function ChartWindow({ data }: ChartWindowProps) {
       console.error("Error preparing chart data:", error);
       return [];
     }
-  }, [data]);
+  }, [localData]);
 
   // Check if dark mode is active
   const isDarkMode = useMemo(() => {
@@ -108,19 +126,19 @@ function ChartWindow({ data }: ChartWindowProps) {
   }, []);
 
   const xDomain = useMemo(() => {
-    if (!data || data.rows.length === 0) return [];
+    if (!localData || localData.rows.length === 0) return [];
     return [
-      parseISO(data.rows[0].date).getTime(),
-      parseISO(data.rows[data.rows.length - 1].date).getTime(),
+      parseISO(localData.rows[0].date).getTime(),
+      parseISO(localData.rows[localData.rows.length - 1].date).getTime(),
     ];
-  }, [data]);
+  }, [localData]);
 
   const ticks = useMemo(() => {
-    if (!data || data.rows.length === 0) return [];
-    return data.rows.map((row) => parseISO(row.date).getTime());
-  }, [data]);
+    if (!localData || localData.rows.length === 0) return [];
+    return localData.rows.map((row) => parseISO(row.date).getTime());
+  }, [localData]);
 
-  if (!data) {
+  if (!localData) {
     return (
       <div className="flex items-center justify-center h-screen">
         <p>No data available</p>
@@ -156,7 +174,73 @@ function ChartWindow({ data }: ChartWindowProps) {
     }
   }, [tooltipData]);
 
+  // Mouse event handlers for dragging
+  const handleMouseDown = (header: string, dataIndex: number, event: any, value: number) => {
+    if (event && event.target && chartRef.current) {
+      const chartRect = chartRef.current.getBoundingClientRect();
+      setIsDragging(true);
+      setDragData({
+        header,
+        dataIndex,
+        initialY: event.clientY,
+        initialValue: value,
+        chartRect
+      });
+      // Prevent tooltip from showing during drag
+      setTooltipData(null);
+      setTooltipPosition(null);
+    }
+  };
+
+  const handleMouseMove = useCallback((event: MouseEvent) => {
+    if (!isDragging || !dragData) return;
+
+    // Get the chart's plotting area dimensions (excluding margins)
+    const chartMargin = { top: 30, bottom: 50, left: 300, right: 200 }; // From LineChart margins
+    const chartPlotHeight = dragData.chartRect.height - chartMargin.top - chartMargin.bottom;
+    const chartPlotTop = dragData.chartRect.top + chartMargin.top;
+    
+    // Calculate current mouse Y relative to chart plot area
+    const mouseYInChart = event.clientY - chartPlotTop;
+    const relativeY = 1 - (mouseYInChart / chartPlotHeight); // Flip Y axis (0 at bottom, 1 at top)
+    
+    // Map to log scale range (our Y axis goes from log(1) to log(2000))
+    const minLogValue = Math.log(1);
+    const maxLogValue = Math.log(2000);
+    const targetLogValue = minLogValue + (relativeY * (maxLogValue - minLogValue));
+    const newValue = Math.max(1, Math.min(2000, Math.exp(targetLogValue))); // Clamp to valid range
+
+    // Update local data
+    const updatedData = { ...localData };
+    updatedData.rows[dragData.dataIndex].values[dragData.header] = newValue;
+    setLocalData(updatedData);
+  }, [isDragging, dragData, localData]);
+
+  const handleMouseUp = useCallback(() => {
+    if (isDragging && dragData && onDataUpdate) {
+      // Propagate changes to parent
+      onDataUpdate(localData);
+    }
+    setIsDragging(false);
+    setDragData(null);
+  }, [isDragging, dragData, localData, onDataUpdate]);
+
+  // Add global mouse event listeners
+  useEffect(() => {
+    if (isDragging) {
+      document.addEventListener('mousemove', handleMouseMove);
+      document.addEventListener('mouseup', handleMouseUp);
+      return () => {
+        document.removeEventListener('mousemove', handleMouseMove);
+        document.removeEventListener('mouseup', handleMouseUp);
+      };
+    }
+  }, [isDragging, handleMouseMove, handleMouseUp]);
+
   const handleDotClick = (data: any, event: any) => {
+    // Don't show tooltip if we just finished dragging
+    if (isDragging) return;
+    
     console.log('Dot clicked:', data, event); // Debug log
     
     if (event && event.target) {
@@ -328,19 +412,19 @@ function ChartWindow({ data }: ChartWindowProps) {
                 return <span style={{ fontSize: '20px', color: isDarkMode ? '#fff' : '#000' }}>{value}</span>;
               }}
               payload={chartData.length > 0 
-                ? data.headers
+                ? localData.headers
                   // Sort by the last data point values in descending order
                   .map(header => ({
                     value: header,
                     type: 'line',
-                    color: CHART_COLORS[data.headers.indexOf(header) % CHART_COLORS.length],
+                    color: CHART_COLORS[localData.headers.indexOf(header) % CHART_COLORS.length],
                     dataValue: reverseLogTransform(chartData[chartData.length - 1][header] || 0)
                   }))
                   .sort((a, b) => b.dataValue - a.dataValue)
                 : []
               }
             />
-            {data.headers.map((header, index) => (
+            {localData.headers.map((header, index) => (
               <Line
                 key={header}
                 dataKey={header}
@@ -351,9 +435,15 @@ function ChartWindow({ data }: ChartWindowProps) {
                   r: 5, 
                   fill: CHART_COLORS[index % CHART_COLORS.length], 
                   strokeWidth: 0,
-                  cursor: 'pointer',
+                  cursor: isDragging ? 'grabbing' : 'grab',
+                  onMouseDown: (data: any, event: any) => {
+                    const dataIndex = chartData.findIndex(row => row.timestamp === data.payload.timestamp);
+                    if (dataIndex !== -1) {
+                      handleMouseDown(header, dataIndex, event, data.payload[header]);
+                    }
+                  },
                   onClick: (data: any, event: any) => {
-                    const enrichedData = { ...data.payload, headers: data.headers || Object.keys(data.payload).filter(key => key !== 'date' && key !== 'timestamp') };
+                    const enrichedData = { ...data.payload, headers: localData.headers };
                     handleDotClick(enrichedData, event);
                   }
                 }}
@@ -361,13 +451,19 @@ function ChartWindow({ data }: ChartWindowProps) {
                   r: 8, 
                   fill: CHART_COLORS[index % CHART_COLORS.length], 
                   strokeWidth: 0,
-                  cursor: 'pointer',
+                  cursor: isDragging ? 'grabbing' : 'grab',
+                  onMouseDown: (data: any, event: any) => {
+                    const dataIndex = chartData.findIndex(row => row.timestamp === data.payload.timestamp);
+                    if (dataIndex !== -1) {
+                      handleMouseDown(header, dataIndex, event, data.payload[header]);
+                    }
+                  },
                   onClick: (data: any, event: any) => {
-                    const enrichedData = { ...data.payload, headers: data.headers || Object.keys(data.payload).filter(key => key !== 'date' && key !== 'timestamp') };
+                    const enrichedData = { ...data.payload, headers: localData.headers };
                     handleDotClick(enrichedData, event);
                   }
                 }}
-                isAnimationActive={true}
+                isAnimationActive={!isDragging}
                 animationDuration={500}
               />
             ))}
