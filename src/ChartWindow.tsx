@@ -1,8 +1,6 @@
-import { listen } from "@tauri-apps/api/event";
-import { message } from "@tauri-apps/plugin-dialog";
 import { format, parseISO } from "date-fns";
-import { useEffect, useMemo, useState } from "react";
-import { CartesianGrid, Legend, Line, LineChart, XAxis, YAxis } from "recharts";
+import { useMemo } from "react";
+import { CartesianGrid, Legend, Line, LineChart, Tooltip, XAxis, YAxis } from "recharts";
 
 import {
   Card,
@@ -11,22 +9,18 @@ import {
   CardHeader,
   CardTitle,
 } from "@/components/ui/card";
-import {
-  ChartConfig,
-  ChartContainer,
-  ChartTooltip,
-} from "@/components/ui/chart";
-import { type Data, dataSchema } from "./dataSchema";
+import { type Data } from "./dataSchema";
 
+// Use direct hex colors to ensure compatibility
 const CHART_COLORS = [
-  "var(--chart-1)",
-  "var(--chart-2)",
-  "var(--chart-3)",
-  "var(--chart-4)",
-  "var(--chart-5)",
-  "var(--chart-6)",
-  "var(--chart-7)",
-  "var(--chart-8)",
+  "#2e7d32", // Green
+  "#1976d2", // Blue
+  "#5e35b1", // Purple
+  "#d81b60", // Pink
+  "#ef6c00", // Orange
+  "#f9a825", // Yellow
+  "#424242", // Grey
+  "#6a1b9a", // Deep Purple
 ];
 
 const applyLogTransform = (value: number): number => {
@@ -54,36 +48,21 @@ const formatYAxisTick = (value: number) => {
   const originalValue = reverseLogTransform(value);
   const roundedValue = Math.round(originalValue * 100) / 100;
 
-  return `${roundedValue}x — ${
-    CUSTOM_Y_LABELS[roundedValue as keyof typeof CUSTOM_Y_LABELS] ||
-    roundedValue
-  }`;
+  // Shorter format for better readability
+  const label = CUSTOM_Y_LABELS[roundedValue as keyof typeof CUSTOM_Y_LABELS];
+  
+  if (label) {
+    return `${roundedValue}x — ${label}`;
+  } else {
+    return `${roundedValue}x`;
+  }
 };
 
-function ChartWindow() {
-  const [data, setData] = useState<Data | null>(null);
+interface ChartWindowProps {
+  data: Data;
+}
 
-  useEffect(() => {
-    const unlisten = listen("data", async (event) => {
-      try {
-        const parsedData = dataSchema.parse(event.payload);
-        setData(parsedData);
-      } catch (error) {
-        console.error("Error parsing data:", error);
-        if (error instanceof Error) {
-          await message(`Error parsing data: ${error.message}`, {
-            title: "Data Error",
-            kind: "error",
-          });
-        }
-      }
-    });
-
-    return () => {
-      unlisten.then((unlisten) => unlisten());
-    };
-  }, []);
-
+function ChartWindow({ data }: ChartWindowProps) {
   const chartData = useMemo(() => {
     if (!data) return [];
 
@@ -114,47 +93,15 @@ function ChartWindow() {
       });
     } catch (error) {
       console.error("Error preparing chart data:", error);
-      message(
-        `Error preparing chart data: ${
-          error instanceof Error ? error.message : String(error)
-        }`,
-        {
-          title: "Chart Error",
-          kind: "error",
-        }
-      );
       return [];
     }
   }, [data]);
 
-  const chartConfig = useMemo(() => {
-    if (!data?.headers) return {};
-
-    try {
-      return data.headers.reduce((config, header, index) => {
-        const colorIndex = index % CHART_COLORS.length;
-        return {
-          ...config,
-          [header]: {
-            label: header,
-            color: CHART_COLORS[colorIndex],
-          },
-        };
-      }, {}) as ChartConfig;
-    } catch (error) {
-      console.error("Error creating chart config:", error);
-      message(
-        `Error creating chart configuration: ${
-          error instanceof Error ? error.message : String(error)
-        }`,
-        {
-          title: "Chart Config Error",
-          kind: "error",
-        }
-      );
-      return {};
-    }
-  }, [data?.headers]);
+  // Check if dark mode is active
+  const isDarkMode = useMemo(() => {
+    if (typeof window === 'undefined') return false;
+    return window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches;
+  }, []);
 
   const xDomain = useMemo(() => {
     if (!data || data.rows.length === 0) return [];
@@ -172,7 +119,7 @@ function ChartWindow() {
   if (!data) {
     return (
       <div className="flex items-center justify-center h-screen">
-        <p>Waiting for data from main window...</p>
+        <p>No data available</p>
       </div>
     );
   }
@@ -185,17 +132,15 @@ function ChartWindow() {
     }
 
     const formattedLabel =
-      typeof label === "number" ? format(new Date(label), "MMM yyyy") : label;
+      typeof label === "number" ? format(new Date(label), "MMMM yyyy") : label;
 
     return (
-      <div className="rounded-lg border bg-background p-2 shadow-sm">
-        <div className="flex gap-2">
-          <div className="flex flex-col">
-            <span className="text-sm text-muted-foreground">
-              {formattedLabel}
-            </span>
+      <div className={`rounded-lg border p-4 shadow-lg ${isDarkMode ? 'bg-gray-800 text-white border-gray-700' : 'bg-white text-gray-800 border-gray-200'}`}>
+        <div className="flex flex-col gap-3">
+          <div className="font-bold text-lg border-b pb-2 mb-1">
+            {formattedLabel}
           </div>
-          <div className="flex flex-col">
+          <div className="flex flex-col gap-3">
             {payload.map((entry: any, index: number) => {
               const value = entry.value;
               const name = entry.name;
@@ -204,16 +149,20 @@ function ChartWindow() {
                 typeof value === "number"
                   ? reverseLogTransform(value).toFixed(2)
                   : value;
+                  
+              // Look up the label if it exists
+              const label = CUSTOM_Y_LABELS[Math.round(reverseLogTransform(value) * 100) / 100 as keyof typeof CUSTOM_Y_LABELS];
+              const description = label ? ` — ${label}` : '';
 
               return (
-                <div key={`item-${index}`} className="flex items-center gap-2">
+                <div key={`item-${index}`} className="flex items-center gap-3 py-1">
                   <span
-                    className="h-3 w-3 rounded-full"
+                    className="h-5 w-5 rounded-full flex-shrink-0"
                     style={{ backgroundColor: entry.color }}
                   />
-                  <span className="text-sm font-medium">{name}</span>
-                  <span className="text-sm text-muted-foreground ml-auto">
-                    {displayValue}x
+                  <span className="text-lg font-medium flex-shrink-0">{name}</span>
+                  <span className="text-lg ml-auto font-bold">
+                    {displayValue}x{description}
                   </span>
                 </div>
               );
@@ -225,10 +174,10 @@ function ChartWindow() {
   };
 
   return (
-    <Card className="w-full max-w-7xl mx-auto">
-      <CardHeader className="text-center">
-        <CardTitle>AI R&D Progress Multiplier Over Time</CardTitle>
-        <CardDescription>
+    <Card className="w-full h-[calc(100vh-120px)] mx-auto">
+      <CardHeader className="text-center pb-2">
+        <CardTitle className="text-2xl font-bold">AI 2027 Tabletop Exercise - R&D Progress Multiplier</CardTitle>
+        <CardDescription className="text-lg">
           From{" "}
           {chartData.length > 0
             ? format(parseISO(chartData[0].date), "MMMM yyyy")
@@ -242,16 +191,17 @@ function ChartWindow() {
             : ""}
         </CardDescription>
       </CardHeader>
-      <CardContent>
-        <ChartContainer config={chartConfig} className="min-h-[400px]">
+      <CardContent className="h-[calc(100%-80px)] p-2">
+        <div className="w-full h-full flex justify-center">
           <LineChart
-            accessibilityLayer
+            width={window.innerWidth > 1200 ? window.innerWidth - 150 : window.innerWidth - 50}
+            height={window.innerHeight - 150}
             data={chartData}
             margin={{
-              left: 20,
-              right: 20,
-              top: 20,
-              bottom: 20,
+              left: 40,
+              right: 200, // Increased right margin for legend
+              top: 30,
+              bottom: 50, // More space for X-axis labels
             }}
           >
             <CartesianGrid vertical={false} />
@@ -265,7 +215,11 @@ function ChartWindow() {
               ticks={ticks}
               tickLine={false}
               axisLine={false}
-              tickMargin={8}
+              tickMargin={12}
+              style={{
+                fontSize: '18px',
+                fontWeight: 500
+              }}
               allowDataOverflow
             />
             <YAxis
@@ -273,25 +227,66 @@ function ChartWindow() {
               domain={[1, "auto"]}
               ticks={TRANSFORMED_Y_TICKS}
               tickFormatter={formatYAxisTick}
-              tickMargin={5}
-              width={150}
+              tickMargin={15}
+              width={260}
+              style={{
+                fontSize: '18px',
+                fontWeight: 500
+              }}
               allowDataOverflow
             />
-            <ChartTooltip cursor={false} content={<CustomTooltipContent />} />
-            <Legend />
+            <Tooltip content={<CustomTooltipContent />} />
+            <Legend 
+              layout="vertical"
+              align="right" 
+              verticalAlign="middle"
+              iconSize={16}
+              wrapperStyle={{ 
+                right: 20,
+                top: '50%',
+                transform: 'translateY(-50%)',
+                backgroundColor: isDarkMode ? 'rgba(30, 30, 30, 0.9)' : 'rgba(255, 255, 255, 0.9)',
+                border: isDarkMode ? '1px solid #333' : '1px solid #f0f0f0',
+                borderRadius: '8px',
+                padding: '20px',
+                lineHeight: '40px',
+                fontSize: '18px',
+                fontWeight: 500,
+                color: isDarkMode ? '#fff' : '#000',
+                boxShadow: '0 4px 6px rgba(0, 0, 0, 0.1)'
+              }}
+              // Sort payload to match the line order from top to bottom at the right edge
+              formatter={(value, entry) => {
+                return <span style={{ fontSize: '20px', color: isDarkMode ? '#fff' : '#000' }}>{value}</span>;
+              }}
+              payload={chartData.length > 0 
+                ? data.headers
+                  // Sort by the last data point values in descending order
+                  .map(header => ({
+                    value: header,
+                    type: 'line',
+                    color: CHART_COLORS[data.headers.indexOf(header) % CHART_COLORS.length],
+                    dataValue: reverseLogTransform(chartData[chartData.length - 1][header] || 0)
+                  }))
+                  .sort((a, b) => b.dataValue - a.dataValue)
+                : []
+              }
+            />
             {data.headers.map((header, index) => (
               <Line
                 key={header}
                 dataKey={header}
                 type="monotone"
                 stroke={CHART_COLORS[index % CHART_COLORS.length]}
-                strokeWidth={2}
-                dot={{ r: 4 }}
-                activeDot={{ r: 6 }}
+                strokeWidth={3}
+                dot={{ r: 5, fill: CHART_COLORS[index % CHART_COLORS.length], strokeWidth: 0 }}
+                activeDot={{ r: 8, fill: CHART_COLORS[index % CHART_COLORS.length], strokeWidth: 0 }}
+                isAnimationActive={true}
+                animationDuration={500}
               />
             ))}
           </LineChart>
-        </ChartContainer>
+        </div>
       </CardContent>
     </Card>
   );

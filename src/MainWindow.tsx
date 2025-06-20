@@ -1,12 +1,3 @@
-import { emit } from "@tauri-apps/api/event";
-import { appCacheDir, join } from "@tauri-apps/api/path";
-import { message, open, save } from "@tauri-apps/plugin-dialog";
-import {
-  exists,
-  mkdir,
-  readTextFile,
-  writeTextFile,
-} from "@tauri-apps/plugin-fs";
 import { addMonths, format, subMonths } from "date-fns";
 import {
   Calendar as CalendarIcon,
@@ -18,7 +9,6 @@ import {
   RefreshCw,
   Save,
   Trash2,
-  Upload,
 } from "lucide-react";
 import { useEffect, useState } from "react";
 import { Button } from "./components/ui/button";
@@ -34,19 +24,17 @@ import {
 } from "./components/ui/table";
 import { dataSchema, type Data } from "./dataSchema";
 import DEFAULT_DATA from "./default-data.json";
+import { FileUpload } from "./components/ui/file-upload";
+import { useToast } from "./components/ui/toast";
+import { storageService, eventService } from "./lib/utils";
 
-function MainWindow() {
-  const [data, setData] = useState<Data>(DEFAULT_DATA);
-  const [cacheFilePath, setCacheFilePath] = useState<string | null>(null);
+interface MainWindowProps {
+  data: Data;
+  setData: (data: Data) => void;
+}
 
-  const getCacheFilePath = async (): Promise<string> => {
-    if (cacheFilePath) return cacheFilePath;
-
-    const appDataDirPath = await appCacheDir();
-    console.log("appDataDirPath", appDataDirPath);
-    await mkdir(appDataDirPath, { recursive: true });
-    return join(appDataDirPath, "ai-progress-data.cache.json");
-  };
+function MainWindow({ data, setData }: MainWindowProps) {
+  const { showToast } = useToast();
 
   const prepareData = () => {
     return {
@@ -65,14 +53,14 @@ function MainWindow() {
     };
   };
 
-  const parseData = async (fileContent: string) => {
+  const parseData = (fileContent: string): Data | null => {
     let rawData;
     try {
       rawData = JSON.parse(fileContent);
     } catch (parseError) {
-      await message("Invalid JSON file format", {
-        title: "Load Error",
-        kind: "error",
+      showToast("Invalid JSON file format", { 
+        title: "Load Error", 
+        type: "error" 
       });
       return null;
     }
@@ -83,9 +71,9 @@ function MainWindow() {
         .map((err) => `${err.path.join(".")}: ${err.message}`)
         .join("\n");
 
-      await message(`Invalid data format:\n${errorMessage}`, {
+      showToast(`Invalid data format: ${errorMessage}`, {
         title: "Validation Error",
-        kind: "error",
+        type: "error",
       });
       return null;
     }
@@ -103,109 +91,59 @@ function MainWindow() {
     });
   };
 
-  const cacheData = async (dataToCache: Data) => {
-    try {
-      if (!cacheFilePath) {
-        const filePath = await getCacheFilePath();
-        setCacheFilePath(filePath);
-      }
-
-      if (cacheFilePath) {
-        await writeTextFile(
-          cacheFilePath,
-          JSON.stringify(dataToCache, null, 2),
-          {}
-        );
-        console.log("Data cached successfully");
-      }
-    } catch (error) {
-      console.error("Failed to cache data:", error);
-    }
-  };
-
   // Load cached data on startup
   useEffect(() => {
-    const loadCachedData = async () => {
-      const filePath = await getCacheFilePath();
-      setCacheFilePath(filePath);
-
-      const fileExists = await exists(filePath);
-      if (fileExists) {
-        const fileContent = await readTextFile(filePath);
-        const validatedData = await parseData(fileContent);
-        if (validatedData) {
-          applyLoadedData(validatedData);
-        }
+    const loadCachedData = () => {
+      const cachedData = storageService.loadData();
+      if (cachedData) {
+        applyLoadedData(cachedData);
       }
     };
 
     loadCachedData();
   }, []);
 
-  const saveDataToFile = async () => {
+  const saveDataToFile = () => {
     try {
       const dataToSave = prepareData();
-
-      const filePath = await save({
-        filters: [
-          {
-            name: "JSON",
-            extensions: ["json"],
-          },
-        ],
-        defaultPath: "ai-progress-data.json",
+      storageService.downloadJson(dataToSave, "ai-progress-data.json");
+      showToast("File saved successfully", {
+        title: "Success",
+        type: "success",
       });
-
-      if (filePath) {
-        await writeTextFile(filePath, JSON.stringify(dataToSave, null, 2));
-        await message("File saved successfully", {
-          title: "Success",
-          kind: "info",
-        });
-      }
     } catch (error) {
       console.error("Failed to save file:", error);
-      await message(
+      showToast(
         `Failed to save file: ${
           error instanceof Error ? error.message : String(error)
         }`,
         {
           title: "Save Error",
-          kind: "error",
+          type: "error",
         }
       );
     }
   };
 
-  const loadDataFromFile = async () => {
+  const handleFileLoad = (fileContent: string) => {
     try {
-      const selected = await open({
-        multiple: false,
-        directory: false,
-        filters: [
-          {
-            name: "JSON",
-            extensions: ["json"],
-          },
-        ],
-      });
-
-      if (selected && typeof selected === "string") {
-        const fileContent = await readTextFile(selected);
-        const validatedData = await parseData(fileContent);
-        if (validatedData) {
-          applyLoadedData(validatedData);
-        }
+      const validatedData = parseData(fileContent);
+      if (validatedData) {
+        applyLoadedData(validatedData);
+        showToast("File loaded successfully", {
+          title: "Success",
+          type: "success",
+        });
       }
     } catch (error) {
       console.error("Failed to load file:", error);
-      await message(
+      showToast(
         `Failed to load file: ${
           error instanceof Error ? error.message : String(error)
         }`,
         {
           title: "Load Error",
-          kind: "error",
+          type: "error",
         }
       );
     }
@@ -213,6 +151,10 @@ function MainWindow() {
 
   const resetToDefaultData = () => {
     setData(DEFAULT_DATA);
+    showToast("Data reset to default values", {
+      title: "Reset",
+      type: "info",
+    });
   };
 
   const addRow = () => {
@@ -251,13 +193,13 @@ function MainWindow() {
       });
     } catch (error) {
       console.error("Error adding row:", error);
-      message(
+      showToast(
         `Error adding row: ${
           error instanceof Error ? error.message : String(error)
         }`,
         {
           title: "Error",
-          kind: "error",
+          type: "error",
         }
       );
     }
@@ -287,9 +229,9 @@ function MainWindow() {
 
   const updateHeader = (oldHeader: string, newHeader: string) => {
     if (data.headers.includes(newHeader) && newHeader !== oldHeader) {
-      message("A column with this name already exists", {
+      showToast("A column with this name already exists", {
         title: "Validation Error",
-        kind: "error",
+        type: "error",
       });
       return;
     }
@@ -345,25 +287,14 @@ function MainWindow() {
     setData({ ...data, rows: newRows });
   };
 
+  // Update storage and emit data updates when data changes
   useEffect(() => {
-    const dataToSend = prepareData();
-
-    emit("data", dataToSend).catch((error) => {
-      console.error("Error emitting data event:", error);
-      message(
-        `Error sending data to chart: ${
-          error instanceof Error ? error.message : String(error)
-        }`,
-        {
-          title: "Communication Error",
-          kind: "error",
-        }
-      );
-    });
-
-    cacheData(prepareData());
+    const dataToSave = prepareData();
+    storageService.saveData(dataToSave);
+    eventService.emitDataUpdate(dataToSave);
   }, [data]);
 
+  // Handle keyboard shortcuts
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
       try {
@@ -372,20 +303,15 @@ function MainWindow() {
           e.preventDefault();
           saveDataToFile();
         }
-        // Ctrl+O or Cmd+O (Open)
-        if ((e.ctrlKey || e.metaKey) && e.key === "o") {
-          e.preventDefault();
-          loadDataFromFile();
-        }
       } catch (error) {
         console.error("Error handling keyboard shortcut:", error);
-        message(
+        showToast(
           `Error with keyboard shortcut: ${
             error instanceof Error ? error.message : String(error)
           }`,
           {
             title: "Error",
-            kind: "error",
+            type: "error",
           }
         );
       }
@@ -395,19 +321,21 @@ function MainWindow() {
     return () => {
       window.removeEventListener("keydown", handleKeyDown);
     };
-  }, []);
+  }, [data]);
 
   return (
     <Card className="w-full max-w-6xl mx-auto mt-4">
       <CardHeader className="flex flex-row items-center justify-between">
-        <CardTitle>AI R&D Progress Multiplier Data</CardTitle>
+        <CardTitle>AI 2027 Tabletop Exercise - Data Editor</CardTitle>
         <div className="flex gap-2">
           <Button variant="outline" size="sm" onClick={saveDataToFile}>
             <Save className="mr-2 h-4 w-4" /> Save
           </Button>
-          <Button variant="outline" size="sm" onClick={loadDataFromFile}>
-            <Upload className="mr-2 h-4 w-4" /> Load
-          </Button>
+          <FileUpload 
+            onFileLoaded={handleFileLoad} 
+            accept=".json" 
+            buttonText="Load"
+          />
           <Button variant="outline" size="sm" onClick={resetToDefaultData}>
             <RefreshCw className="mr-2 h-4 w-4" /> Reset
           </Button>
